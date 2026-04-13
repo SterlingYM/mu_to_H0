@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific
+.DS_Store
+data/Pantheon+SH0ES_STAT+SYS.cov
+data/custom_*.npy
+data/custom_*.csv

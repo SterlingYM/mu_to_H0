@@ -25,10 +25,9 @@ As a library:
 As a script (demo with SH0ES-implied host distances):
     python mu_to_H0.py
 
-Data files required (produced by prep_truncated_data.py):
-    truncated_y.npy
-    truncated_C.npy
-    truncated_labels.csv
+Data files required:
+    custom_y.npy / custom_C.npy / custom_labels.csv  (produced by prep_SN_data.ipynb)
+    SH0ES22_partial_y.npy / ...                       (pre-built SH0ES R22 subset)
 """
 
 import numpy as np
@@ -38,9 +37,9 @@ from scipy import linalg
 # ---------------------------------------------------------------------------
 # Default data file paths
 # ---------------------------------------------------------------------------
-_DEFAULT_Y      = 'truncated_y.npy'
-_DEFAULT_C      = 'truncated_C.npy'
-_DEFAULT_LABELS = 'truncated_labels.csv'
+_DEFAULT_Y      = 'custom_y.npy'
+_DEFAULT_C      = 'custom_C.npy'
+_DEFAULT_LABELS = 'custom_labels.csv'
 
 
 def load_truncated_data(y_path=_DEFAULT_Y, C_path=_DEFAULT_C,
@@ -54,11 +53,11 @@ def load_truncated_data(y_path=_DEFAULT_Y, C_path=_DEFAULT_C,
 
 def calibrator_hosts(labels):
     """Return the ordered list of unique calibrator host galaxy names."""
-    cal = labels[labels['type'] == 'std_cal']
+    cal = labels[labels['type'] == 'CAL']
     return list(dict.fromkeys(cal['host']))   # preserves insertion order
 
 
-def solve_H0(mu_host, y=None, C=None, labels=None, verbose=True):
+def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=True):
     """
     Solve for H0 given Cepheid distance moduli to calibrator host galaxies.
 
@@ -68,6 +67,13 @@ def solve_H0(mu_host, y=None, C=None, labels=None, verbose=True):
         Mapping of host galaxy name → distance modulus (mag).
         All calibrator hosts must be present; run calibrator_hosts()
         to get the required keys.
+    sigma_mu_host : dict, optional
+        Mapping of host galaxy name → 1-sigma uncertainty on the distance
+        modulus (mag).  When provided, each host's uncertainty is added to
+        the covariance matrix as a fully-correlated term across all
+        calibrator SNe in that host (i.e. C_eff[i,j] += σ_h² for every
+        pair i,j of SNe belonging to host h).  Hosts absent from this dict
+        are treated as having zero distance uncertainty.
     y, C, labels : array-like, optional
         Pre-loaded data arrays.  Loaded from default files if not provided.
     verbose : bool
@@ -100,8 +106,26 @@ def solve_H0(mu_host, y=None, C=None, labels=None, verbose=True):
     # labels has a default 0-based integer index; i == positional index into y
     y_eff = y.copy()
     for i, row in labels.iterrows():
-        if row['type'] == 'std_cal':
+        if row['type'] == 'CAL':
             y_eff[i] -= mu_host[row['host']]
+
+    # ------------------------------------------------------------------
+    # Augment covariance with Cepheid distance uncertainties.
+    # SNe sharing the same host are subject to the same distance error,
+    # so the contribution σ_h² is fully correlated across that host's SNe.
+    # ------------------------------------------------------------------
+    C_eff = C.copy()
+    if sigma_mu_host:
+        for h, sigma in sigma_mu_host.items():
+            if sigma == 0.0:
+                continue
+            cal_idx = labels.index[
+                (labels['type'] == 'CAL') & (labels['host'] == h)
+            ].tolist()
+            var = sigma ** 2
+            for i in cal_idx:
+                for j in cal_idx:
+                    C_eff[i, j] += var
 
     # ------------------------------------------------------------------
     # Design matrix for the 2-parameter system [M_B, 5*log10(H0)]
@@ -111,13 +135,13 @@ def solve_H0(mu_host, y=None, C=None, labels=None, verbose=True):
     # ------------------------------------------------------------------
     L = np.zeros((2, N))
     L[0, :] = 1.0                                             # M_B coefficient
-    hf_mask = (labels['type'] == 'std_hf').values
+    hf_mask = (labels['type'] == 'HF').values
     L[1, hf_mask] = -1.0                                      # H0 coefficient
 
     # ------------------------------------------------------------------
     # Weighted least squares  q = (L C^{-1} L^T)^{-1} L C^{-1} y_eff
     # ------------------------------------------------------------------
-    C_inv = linalg.inv(C)
+    C_inv = linalg.inv(C_eff)
     A     = L @ C_inv @ L.T        # (2, 2) Fisher matrix
     b     = L @ C_inv @ y_eff      # (2,)
     q     = linalg.solve(A, b)     # [M_B, 5*log10(H0)]
@@ -153,8 +177,8 @@ if __name__ == '__main__':
     y, C, labels = load_truncated_data()
 
     hosts = calibrator_hosts(labels)
-    print(f'Loaded {len(y)} SN rows ({(labels["type"]=="std_cal").sum()} cal, '
-          f'{(labels["type"]=="std_hf").sum()} HF), {len(hosts)} calibrator hosts.\n')
+    print(f'Loaded {len(y)} SN rows ({(labels["type"]=="CAL").sum()} cal, '
+          f'{(labels["type"]=="HF").sum()} HF), {len(hosts)} calibrator hosts.\n')
 
     # ------------------------------------------------------------------
     # Demo: derive host distances from the SH0ES full least-squares solution.
@@ -164,7 +188,7 @@ if __name__ == '__main__':
     q_lstsq = np.loadtxt('lstsq_results.txt', usecols=0)
     M_B_ref = q_lstsq[42]   # parameter 42 = M_B  ≈ -19.24 mag
 
-    cal_rows = labels[labels['type'] == 'std_cal']
+    cal_rows = labels[labels['type'] == 'CAL']
     implied_by_host = {}
     for i, row in cal_rows.iterrows():
         implied_by_host.setdefault(row['host'], []).append(y[i] - M_B_ref)
