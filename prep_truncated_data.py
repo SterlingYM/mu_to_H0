@@ -13,9 +13,9 @@ MW parallax anchor rows (CID == 'MW') are excluded.
 
 Outputs
 -------
-truncated_y.npy      : (N,)   SN apparent-magnitude observations
-truncated_C.npy      : (N,N)  covariance block for selected SN rows
-truncated_labels.csv : row metadata -- label, type (cal/hf), host galaxy name
+SH0ES22_partial_y.npy      : (N,)   SN apparent-magnitude observations
+SH0ES22_partial_C.npy      : (N,N)  covariance block for selected SN rows
+SH0ES22_partial_labels.csv : row metadata -- label, type (cal/hf), host galaxy name
 """
 
 import numpy as np
@@ -29,9 +29,9 @@ Y_PATH       = 'ally_shoes_ceph_topantheonwt6.0_112221.fits'
 C_PATH       = 'allc_shoes_ceph_topantheonwt6.0_112221.fits'
 YLABELS_PATH = 'SH0ES_y_labels.csv'
 
-OUT_Y      = 'truncated_y.npy'
-OUT_C      = 'truncated_C.npy'
-OUT_LABELS = 'truncated_labels.csv'
+OUT_Y      = 'custom_y.npy'
+OUT_C      = 'custom_C.npy'
+OUT_LABELS = 'custom_labels.csv'
 
 # ---------------------------------------------------------------------------
 # Load pre-classified SN labels
@@ -46,13 +46,13 @@ cal_mask = yl['calib_host'].notna()
 hf_mask  = yl['calib_host'].isna() & (yl['CID'] != 'MW')
 
 sn_yl = yl[cal_mask | hf_mask].copy()
-sn_yl['type'] = 'std_hf'
-sn_yl.loc[sn_yl['calib_host'].notna(), 'type'] = 'std_cal'
+sn_yl['type'] = 'HF'
+sn_yl.loc[sn_yl['calib_host'].notna(), 'type'] = 'CAL'
 
 selected_idx = sn_yl.index.values   # original FITS indices
 
-n_cal = (sn_yl['type'] == 'std_cal').sum()
-n_hf  = (sn_yl['type'] == 'std_hf').sum()
+n_cal = (sn_yl['type'] == 'CAL').sum()
+n_hf  = (sn_yl['type'] == 'HF').sum()
 print(f'Selected {len(selected_idx)} SN rows  ({n_cal} calibrators, {n_hf} Hubble-flow)')
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ labels_df = pd.DataFrame({
     'host'      : sn_yl['calib_host'].fillna('').values,
 })
 
-cal_hosts = list(dict.fromkeys(labels_df.loc[labels_df['type'] == 'std_cal', 'host']))
+cal_hosts = list(dict.fromkeys(labels_df.loc[labels_df['type'] == 'CAL', 'host']))
 print(f'\nCalibrator hosts ({len(cal_hosts)}):')
 for h in cal_hosts:
     n = (labels_df['host'] == h).sum()
@@ -98,7 +98,7 @@ M_B_lstsq = q[42]          # parameter 42 = M_B  ≈ -19.24
 H0_lstsq  = 10 ** (q[46] / 5)   # parameter 46 = 5*log10(H0)
 
 implied = {}
-for _, row in labels_df[labels_df['type'] == 'std_cal'].iterrows():
+for _, row in labels_df[labels_df['type'] == 'CAL'].iterrows():
     implied.setdefault(row['host'], []).append(y[row['orig_index']] - M_B_lstsq)
 
 print(f'\nSH0ES lstsq reference values:')
