@@ -2,6 +2,21 @@
 
 ***Demonstration/learning purpose only*** A simplified version of distance ladder solver that allows user to modify input distances to SN Ia host galaxies and study the effect on the Hubble constant. Intended for use in CosmoVerse workshop. Do not use this code for cosmological analysis.
 
+## Requirements
+
+- Python 3.9+
+- `numpy`
+- `pandas`
+- `scipy`
+- `matplotlib`
+- `astropy`
+- `jupyter` (to run the notebooks)
+
+Install with:
+```bash
+pip install numpy pandas scipy matplotlib astropy jupyter
+```
+
 ## Getting started
 
 Open **[`demo_mu_to_H0.ipynb`](demo_mu_to_H0.ipynb)** and run the cells top-to-bottom. The notebook walks through:
