@@ -44,7 +44,7 @@ _DEFAULT_LABELS = 'custom_labels.csv'
 
 def load_truncated_data(y_path=_DEFAULT_Y, C_path=_DEFAULT_C,
                         labels_path=_DEFAULT_LABELS):
-    """Load the pre-extracted SN data from prep_truncated_data.py."""
+    """Load the pre-extracted SN data from prep_SH0ES22_partial.py."""
     y      = np.load(y_path)
     C      = np.load(C_path)
     labels = pd.read_csv(labels_path)
