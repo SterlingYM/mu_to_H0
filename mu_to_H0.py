@@ -25,9 +25,11 @@ As a library:
 As a script (demo with SH0ES-implied host distances):
     python mu_to_H0.py
 
-Data files required:
-    custom_y.npy / custom_C.npy / custom_labels.csv  (produced by prep_SN_data.ipynb)
-    SH0ES22_partial_y.npy / ...                       (pre-built SH0ES R22 subset)
+Data files required (default: pre-built SH0ES R22 subset, shipped with the repo):
+    data/SH0ES22_partial_y.npy / data/SH0ES22_partial_C.npy / data/SH0ES22_partial_labels.csv
+
+To use your own selection instead, run prep_SN_data.ipynb to produce
+data/custom_{y,C,labels}.* and pass those paths to load_truncated_data().
 """
 
 import numpy as np
@@ -35,11 +37,11 @@ import pandas as pd
 from scipy import linalg
 
 # ---------------------------------------------------------------------------
-# Default data file paths
+# Default data file paths (pre-built SH0ES R22 subset shipped with the repo)
 # ---------------------------------------------------------------------------
-_DEFAULT_Y      = 'custom_y.npy'
-_DEFAULT_C      = 'custom_C.npy'
-_DEFAULT_LABELS = 'custom_labels.csv'
+_DEFAULT_Y      = 'data/SH0ES22_partial_y.npy'
+_DEFAULT_C      = 'data/SH0ES22_partial_C.npy'
+_DEFAULT_LABELS = 'data/SH0ES22_partial_labels.csv'
 
 
 def load_truncated_data(y_path=_DEFAULT_Y, C_path=_DEFAULT_C,
@@ -66,7 +68,9 @@ def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=T
     mu_host : dict
         Mapping of host galaxy name → distance modulus (mag).
         All calibrator hosts must be present; run calibrator_hosts()
-        to get the required keys.
+        to get the required keys.  Setting a host's value to NaN
+        effectively drops that host from the fit by inflating the
+        covariance diagonal of its calibrator SNe.
     sigma_mu_host : dict, optional
         Mapping of host galaxy name → 1-sigma uncertainty on the distance
         modulus (mag).  When provided, each host's uncertainty is added to
@@ -103,21 +107,28 @@ def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=T
     if missing:
         raise ValueError(f'Missing distance moduli for hosts: {missing}')
 
+    # Hosts whose μ is NaN are dropped from the fit: any contribution they
+    # would make is neutralised by adding a huge variance to the covariance
+    # diagonal of their calibrator SNe (see below).
+    dropped_hosts = {h for h, mu in mu_host.items() if np.isnan(mu)}
+
     # labels has a default 0-based integer index; i == positional index into y
     y_eff = y.copy()
     for i, row in labels.iterrows():
-        if row['type'] == 'CAL':
+        if row['type'] == 'CAL' and row['host'] not in dropped_hosts:
             y_eff[i] -= mu_host[row['host']]
 
     # ------------------------------------------------------------------
     # Augment covariance with Cepheid distance uncertainties.
     # SNe sharing the same host are subject to the same distance error,
     # so the contribution σ_h² is fully correlated across that host's SNe.
+    # For dropped hosts (μ = NaN), add a huge diagonal variance so those
+    # rows carry negligible weight in the weighted least-squares solution.
     # ------------------------------------------------------------------
     C_eff = C.copy()
     if sigma_mu_host:
         for h, sigma in sigma_mu_host.items():
-            if sigma == 0.0:
+            if sigma == 0.0 or h in dropped_hosts:
                 continue
             cal_idx = labels.index[
                 (labels['type'] == 'CAL') & (labels['host'] == h)
@@ -126,6 +137,15 @@ def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=T
             for i in cal_idx:
                 for j in cal_idx:
                     C_eff[i, j] += var
+
+    HUGE_VAR = 1e10
+    for h in dropped_hosts:
+        cal_idx = labels.index[
+            (labels['type'] == 'CAL') & (labels['host'] == h)
+        ].tolist()
+        for i in cal_idx:
+            y_eff[i] = 0.0                 # value is irrelevant; row is down-weighted
+            C_eff[i, i] += HUGE_VAR
 
     # ------------------------------------------------------------------
     # Design matrix for the 2-parameter system [M_B, 5*log10(H0)]
@@ -158,7 +178,8 @@ def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=T
     # chi-squared
     residuals = y_eff - L.T @ q
     chi2      = float(residuals @ C_inv @ residuals)
-    dof       = N - 2
+    n_dropped = ((labels['type'] == 'CAL') & labels['host'].isin(dropped_hosts)).sum()
+    dof       = N - int(n_dropped) - 2
 
     if verbose:
         print(f'M_B       = {M_B:.4f} ± {sigma_M_B:.4f}  mag')
@@ -171,33 +192,16 @@ def solve_H0(mu_host, sigma_mu_host=None, y=None, C=None, labels=None, verbose=T
 
 
 # ---------------------------------------------------------------------------
-# Demo
+# Minimal CLI sanity check — prints dataset summary and required host names.
+# For a worked example with real Cepheid distances, see demo_mu_to_H0.ipynb.
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
     y, C, labels = load_truncated_data()
 
     hosts = calibrator_hosts(labels)
     print(f'Loaded {len(y)} SN rows ({(labels["type"]=="CAL").sum()} cal, '
-          f'{(labels["type"]=="HF").sum()} HF), {len(hosts)} calibrator hosts.\n')
-
-    # ------------------------------------------------------------------
-    # Demo: derive host distances from the SH0ES full least-squares solution.
-    # These are the SN-implied distances (y_cal - M_B_lstsq), averaged per host.
-    # For real use, replace with your own Cepheid distance measurements.
-    # ------------------------------------------------------------------
-    q_lstsq = np.loadtxt('lstsq_results.txt', usecols=0)
-    M_B_ref = q_lstsq[42]   # parameter 42 = M_B  ≈ -19.24 mag
-
-    cal_rows = labels[labels['type'] == 'CAL']
-    implied_by_host = {}
-    for i, row in cal_rows.iterrows():
-        implied_by_host.setdefault(row['host'], []).append(y[i] - M_B_ref)
-
-    mu_demo = {h: float(np.mean(vals)) for h, vals in implied_by_host.items()}
-
-    print('Host distances used in demo (SH0ES SN-implied, NOT true Cepheid distances):')
+          f'{(labels["type"]=="HF").sum()} HF), {len(hosts)} calibrator hosts.')
+    print(f'\nCalibrator hosts required as keys in mu_host:')
     for h in hosts:
-        print(f'  {h:20s}  μ = {mu_demo[h]:.4f}')
-
-    print('\n--- solve_H0 result ---')
-    result = solve_H0(mu_demo, y=y, C=C, labels=labels)
+        print(f'  {h}')
+    print('\nSee demo_mu_to_H0.ipynb for a worked example with Cepheid distances.')

@@ -28,4 +28,6 @@ Open **[`demo_mu_to_H0.ipynb`](demo_mu_to_H0.ipynb)** and run the cells top-to-b
 
 ### Using your own SN data
 
-If you want to regenerate the SN data from Pantheon+ inputs (e.g. to apply different redshift cuts or kinematic corrections), run **[`prep_SN_data.ipynb`](prep_SN_data.ipynb)** first. It writes `data/custom_{y,C,labels}.*` which `demo_mu_to_H0.ipynb` loads by default.
+If you want to regenerate the SN data from Pantheon+ inputs (e.g. to apply different redshift cuts or kinematic corrections), run **[`prep_SN_data.ipynb`](prep_SN_data.ipynb)** first. It writes `data/custom_{y,C,labels}.*`. To use these in the demo, update the load paths in `demo_mu_to_H0.ipynb` from `data/SH0ES22_partial_*` to `data/custom_*`.
+
+Before running `prep_SN_data.ipynb`, download the Pantheon+ statistical+systematic covariance file from the [Pantheon+SH0ES release page](https://github.com/PantheonPlusSH0ES/DataRelease) (file: `Pantheon+SH0ES_STAT+SYS.cov`, ~32 MB) and place it in `data/`. The Pantheon+ data table `data/Pantheon+SH0ES.dat` is already included.
