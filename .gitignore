@@ -212,3 +212,6 @@ data/Pantheon+SH0ES_STAT+SYS.cov
 data/custom_*.npy
 data/custom_*.csv
 dev/
+
+# CosmoVerse workshop materials (separate local copy — not part of this repo)
+CosmoVerse-Data-Challenge-Materials*
